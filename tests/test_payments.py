@@ -237,6 +237,70 @@ def test_verify_payment_gateway_fetch(client, user, product, fake_provider):
     assert fetched["status"] == "CONFIRMED"
 
 
+def test_verify_rejects_payment_from_another_order(client, user, product, fake_provider):
+    """Sessão paga de outro pedido não confirma este, mesmo com valor igual."""
+    order_a = _create_order(client, user, product)
+    client.post(
+        "/api/v1/payments/create-link",
+        json={"order_id": order_a["id"], "provider": "stripe"},
+        headers=user["headers"],
+    )
+    order_b = _create_order(client, user, product)
+    link_b = client.post(
+        "/api/v1/payments/create-link",
+        json={"order_id": order_b["id"], "provider": "stripe"},
+        headers=user["headers"],
+    ).json()
+    fake_provider.set_paid(link_b["provider_payment_link_id"])
+
+    response = client.post(
+        "/api/v1/payments/verify",
+        json={
+            "order_id": order_a["id"],
+            "provider": "stripe",
+            "payment_id": link_b["provider_payment_link_id"],
+        },
+        headers=user["headers"],
+    )
+    assert response.status_code == 400
+
+    fetched = client.get(f"/api/v1/orders/{order_a['id']}", headers=user["headers"]).json()
+    assert fetched["payment_status"] == "PENDING"
+
+
+def test_verify_rejects_payment_from_another_user(
+    client, user, another_user, product, fake_provider
+):
+    """Sessão paga de outro usuário é tentativa não autorizada: 403."""
+    order = _create_order(client, user, product)
+    client.post(
+        "/api/v1/payments/create-link",
+        json={"order_id": order["id"], "provider": "stripe"},
+        headers=user["headers"],
+    )
+    other_order = _create_order(client, another_user, product)
+    other_link = client.post(
+        "/api/v1/payments/create-link",
+        json={"order_id": other_order["id"], "provider": "stripe"},
+        headers=another_user["headers"],
+    ).json()
+    fake_provider.set_paid(other_link["provider_payment_link_id"])
+
+    response = client.post(
+        "/api/v1/payments/verify",
+        json={
+            "order_id": order["id"],
+            "provider": "stripe",
+            "payment_id": other_link["provider_payment_link_id"],
+        },
+        headers=user["headers"],
+    )
+    assert response.status_code == 403
+
+    fetched = client.get(f"/api/v1/orders/{order['id']}", headers=user["headers"]).json()
+    assert fetched["payment_status"] == "PENDING"
+
+
 def test_create_link_after_order_paid_rejected(client, user, product, fake_provider):
     order, _ = _pay_order(client, user, product)
     response = client.post(

@@ -161,7 +161,8 @@ class PaymentService:
         """Confirmação solicitada pelo cliente (URL de retorno).
 
         Os dados vêm do gateway (fetch direto) e são comparados com o
-        pedido no banco: valor e moeda devem coincidir com o registrado
+        pedido no banco: o id consultado deve ser o mesmo link gerado
+        para o pedido, e valor e moeda devem coincidir com o registrado
         no servidor. Nunca se confia em estados enviados pelo cliente.
         """
         order = self._get_owned_order(payload.order_id, current_user)
@@ -187,6 +188,31 @@ class PaymentService:
         except PaymentGatewayError as exc:
             logger.exception("payment verification failed for order %s", order.id)
             raise PaymentProviderUnavailableError(str(exc)) from exc
+
+        # O pagamento consultado precisa ser exatamente o link gerado para
+        # este pedido. Se o id pertence a outro usuário, é tentativa de usar
+        # sessão alheia (403); se é do próprio usuário em outro pedido, é
+        # uso indevido do recurso (400).
+        if provider_payment["payment_id"] != payment.provider_payment_link_id:
+            other_payment = self.payment_repository.get_by_provider_payment_link_id(
+                provider_payment["payment_id"]
+            )
+            if other_payment is not None and other_payment.user_id != current_user.id:
+                logger.warning(
+                    "user %s tried to verify payment %s of user %s (order %s)",
+                    current_user.id,
+                    provider_payment["payment_id"],
+                    other_payment.user_id,
+                    order.id,
+                )
+                raise AccessDeniedError("payment does not belong to this user")
+            logger.warning(
+                "payment id mismatch: expected %s got %s (order %s)",
+                payment.provider_payment_link_id,
+                provider_payment["payment_id"],
+                order.id,
+            )
+            raise InvalidOperationError("payment does not belong to this order")
 
         # Valor do pagamento (centavos) deve corresponder ao cobrado pelo
         # servidor; divergentes indicam manipulação ou cobrança errada.
