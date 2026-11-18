@@ -162,6 +162,28 @@ def test_webhook_amount_mismatch_does_not_pay(client, user, product):
     assert fetched["payment_status"] == "PENDING"
 
 
+def test_webhook_unknown_payment_is_acknowledged(client):
+    """Evento de link desconhecido recebe 200 para o gateway não reenviar."""
+    event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_unknown",
+                "amount_total": 1000,
+                "currency": "brl",
+                "payment_status": "paid",
+            }
+        },
+    }
+    response = client.post(
+        "/api/v1/payments/webhooks/stripe",
+        content=json.dumps(event),
+        headers={"stripe-signature": "valid-signature"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored"
+
+
 def test_razorpay_webhook_flow(client, user, product):
     order = _create_order(client, user, product)
     link = client.post(

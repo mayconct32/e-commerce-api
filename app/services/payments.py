@@ -280,7 +280,15 @@ class PaymentService:
 
         payment = self.payment_repository.get_by_provider_payment_link_id(link_id)
         if payment is None:
-            raise NotFoundError("payment not found")
+            # Evento de um link que não é desta aplicação (outro ambiente,
+            # outra integração ou registro removido). Responde 200 para o
+            # gateway não reenviar por dias; o ocorrido fica registrado.
+            logger.warning(
+                "webhook %s for unknown payment link %s ignored",
+                event_type,
+                link_id,
+            )
+            return {"status": "ignored"}
 
         if payment.status == PaymentStatus.PAID.value:
             return {"status": "already_processed"}
