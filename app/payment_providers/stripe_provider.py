@@ -61,7 +61,7 @@ class StripePaymentLink:
                 cancel_url=f"{base_url}/api/v1/payments/failed",
                 metadata={"order_id": str(order_id)},
             )
-        except stripe.error.StripeError as exc:
+        except stripe.StripeError as exc:
             # Log local sem expor stack trace na resposta HTTP.
             logger.exception("stripe checkout session creation failed")
             raise PaymentGatewayError("unable to create stripe payment link") from exc
@@ -75,7 +75,7 @@ class StripePaymentLink:
         """Consulta uma Checkout Session e devuelve estado normalizado."""
         try:
             session = stripe.checkout.Session.retrieve(payment_id)
-        except stripe.error.StripeError:
+        except stripe.StripeError:
             logger.exception("failed to fetch stripe payment details")
             raise PaymentGatewayError("unable to fetch payment details") from None
 
